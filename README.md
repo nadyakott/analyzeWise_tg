@@ -7,7 +7,7 @@
 
 ## Features
 
-- ↘️ Import your data as CSV/TSV files
+- ↖️ Import your data as CSV/TSV files
 - 📊 Bot automatically makes validation of A/B test results
 - 📥 Export interactive report as an HTML file 
 - 🤩 Enjoy ;)
