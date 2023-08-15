@@ -10,4 +10,4 @@
 - 📊 Makes validation of A/B test results easy by building interactive reports 
 - 📥 Export report as an HTML file 
 - ↘️ Upload your data as CSV/TSV files
-- Enjoy ;)
+- 🤩 Enjoy ;)
