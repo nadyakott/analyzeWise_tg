@@ -4,134 +4,135 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.middlewares.logging import LoggingMiddleware
 from aiogram.types import ParseMode
 from aiogram.utils import executor
-import datapane as dp
 import plotly.express as px
 import pandas as pd
 import io
+import os
+import time
 
-from libs.file_wrapper import CSVWorker
+
+from libs.file_wrapper import FileWrapper
+from libs.report_builder import ReportBuilder
+from libs.settings import settings
+from handlers.keyboard import MainMenu
+
+from customs.text import WELCOME_TEXT
+
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
-
-# Create inline keyboard
-def create_inline_keyboard():
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    view_original_button = InlineKeyboardButton("View Original CSV", callback_data="view_original")
-    download_report_button = InlineKeyboardButton("Download Report", callback_data="download_report")
-    keyboard.add(view_original_button, download_report_button)
-    return keyboard
-
-def draw_graph():
-    df_page1 = pd.DataFrame({
-        'col1': [1, 2, 3, 4, 5],
-        'col2': [6, 7, 8, 9, 10]
-    })
-
-    plot_page1 = px.bar(x=range(5), y=range(5), title='Example Bar Plot')
-
-    datapane_app = dp.App(
-        dp.Page(
-            dp.Text('# Page 1'),
-            dp.Text('In this page I will demonstrate combination of data frames, plots, and Markdown'),
-            dp.Text('### Table Example'),
-            dp.DataTable(df_page1),
-            dp.Text('This is example table. Here I can add comments of any length'),
-            dp.Text('### Plot Example'),
-            dp.Plot(plot_page1),
-            title='Page1'
-        ),
-        dp.Page(
-            dp.Text('In this page I will focus on KPIs and aligning multiple elements in one row'),
-            dp.Group(
-                dp.BigNumber(
-                    heading="Percentage points",
-                    value="84%",
-                    change="2%",
-                    is_upward_change=False,
-                ),
-                dp.BigNumber(
-                    heading="Points",
-                    value="1234",
-                    change="200",
-                    is_upward_change=True,
-                ),
-                columns=2
-            ),
-            dp.Group(
-                dp.Text('My simple text 1'),
-                dp.Text('My simple text 2'),
-                dp.Text('My simple text 3'),
-                columns=3
-            ),
-            title='Page2',
-        )
-    )
-    datapane_app.save('final_example.html')
-
-    return 'final_example.html'
-
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 
 # Initialize bot and dispatcher
-bot = Bot(token='6488657739:AAGOkHPkasMy1l5vO6lB_bfpbmnbyjDHTw8')
-dp_bot = Dispatcher(bot)
-dp_bot.middleware.setup(LoggingMiddleware())
+bot = Bot(token=settings.BOT_TOKEN)
+dp = Dispatcher(bot)
+dp.middleware.setup(LoggingMiddleware())
 
-@dp_bot.message_handler(commands=['start', 'help'])
+# Define states
+PROCESSING_STATE = 'processing'
+
+# Dictionary to store uploaded CSV data
+uploaded_csv_data = {}
+
+reportBuilder = ReportBuilder()
+
+# Directory for storing uploaded CSV files
+UPLOADS_DIRECTORY = 'downloads'
+
+# Create the directory if it doesn't exist
+if not os.path.exists(UPLOADS_DIRECTORY):
+    os.makedirs(UPLOADS_DIRECTORY)
+
+main_menu = MainMenu()
+
+
+@dp.message_handler(commands=['start', 'help', 'menu'])
+
 async def send_welcome(message: types.Message):
     """
     This handler will be called when user sends `/start` or `/help` command
     """
-    await message.reply("Hi!\nI'm EchoBot!\nPowered by aiogram.")
+    await message.reply(WELCOME_TEXT
+                        , reply_markup=main_menu.keyboard
+                        , parse_mode=ParseMode.MARKDOWN)
 
-@dp_bot.message_handler(commands=['graph'])
-async def send_welcome(message: types.Message):
-    """
-    This handler will be called when user sends `/start` or `/help` command
-    """
-    # Replace 'path/to/your/file.txt' with the actual path to your file
+# @dp_bot.message_handler(commands=['graph'])
+# async def send_welcome(message: types.Message):
+#     """
+#     This handler will be called when user sends `/start` or `/help` command
+#     """
+#     # Replace 'path/to/your/file.txt' with the actual path to your file
+#
+#     file_path = ReportBuilder.draw_graph(data)
+#     # file_path = "path/to/your/file.txt"
+#
+#     # Open and send the file to the user
+#     with open(file_path, "rb") as file:
+#         await message.reply_document(file)
 
-    file_path = draw_graph()
-    # file_path = "path/to/your/file.txt"
+# @dp_bot.message_handler(content_types=types.ContentType.DOCUMENT)
+# async def handle_document(message: types.Message):
+#     document = message.document
+#     file_id = document.file_id
+#     file_name = document.file_name
+#
+#     # Download the file
+#     file_bytes = await bot.download_file_by_id(file_id)
+#
+#     csv_data = io.StringIO(file_bytes.decode("utf-8"))
+#
+#     FileWrapper(csv_data)
+#
+#     # Get the file using the file_id and send a response
+#     await bot.send_message(message.chat.id, f"Received document: {file_name} (File ID: {file_id})")
 
-    # Open and send the file to the user
-    with open(file_path, "rb") as file:
-        await message.reply_document(file)
+@dp.message_handler(content_types=types.ContentType.DOCUMENT)
+async def upload_file(message: types.Message):
+    if message.document.mime_type == 'text/csv':
+        try:
+            # Get the uploaded document
+            document = message.document
 
-@dp_bot.message_handler(content_types=types.ContentType.DOCUMENT)
-async def handle_document(message: types.Message):
-    document = message.document
-    file_id = document.file_id
-    file_name = document.file_name
+            file_info = await bot.get_file(document.file_id)
+            # file_path = file_info.file_path
+            # csv_file = await bot.download_file(file_path)
 
-    # Download the file
-    file_bytes = await bot.download_file_by_id(file_id)
+            file_path = os.path.join('downloads', document.file_name)
 
-    csv_data = io.StringIO(file_bytes.decode("utf-8"))
+            file = await bot.download_file(file_info.file_path, file_path)
 
-    CSVWorker(csv_data)
+            with open(file_path, 'rb') as file:
+                # Read the CSV file using pandas
+                df = pd.read_csv(file, index_col=['Unnamed: 0'])
+                reportBuilder.data = df
 
-    # Get the file using the file_id and send a response
-    await bot.send_message(message.chat.id, f"Received document: {file_name} (File ID: {file_id})")
+                # Store the CSV data in the dictionary with the user's chat ID as the key
+                user_id = message.from_user.id
+                uploaded_csv_data[user_id] = df
 
-@dp_bot.message_handler()
-async def echo(message: types.Message):
-    # old style:
-    # await bot.send_message(message.chat.id, message.text)
+            # Send a response message
+            await message.answer("CSV file uploaded and processed.")
 
-    await message.answer(message.text)
+            if not os.path.exists(f'reports/{user_id}'):
+                os.makedirs(f'reports/{user_id}')
+
+            report_path = os.path.join(f'reports/{user_id}',f"{message.from_user.id}_{int(time.time())}.html")
+
+            file_name, report_html = reportBuilder.draw_graph(report_path)
+
+            await bot.send_document(user_id, types.InputFile(report_path))
+
+        except Exception as e:
+            await message.answer(f"An error occurred: {str(e)}")
 
 
-
-# Callback query handler for inline buttons
-@dp_bot.callback_query_handler(lambda query: query.data in ["view_original", "download_report"])
+@dp.callback_query_handler(lambda query: query.data in ["show_faq", "download_report"])
 async def handle_inline_buttons(callback_query: types.CallbackQuery):
-    if callback_query.data == "view_original":
-        await bot.send_message(callback_query.from_user.id, "Viewing original CSV...")
+    if callback_query.data == "show_faq":
+        await callback_query.message.reply(WELCOME_TEXT, reply_markup=main_menu.keyboard)
     elif callback_query.data == "download_report":
-        await bot.send_document(callback_query.from_user.id, types.InputFile("/Users/nadyakott/PycharmProjects/analyzeWise_tg/source/final_example.html"))
+        file_name = f"{callback_query.from_user.id}.html"
+        await bot.send_document(callback_query.from_user.id, types.InputFile(f"/Users/nadyakott/PycharmProjects/analyzeWise_tg/source/{file_name}"))
 
 if __name__ == '__main__':
-  executor.start_polling(dp_bot, skip_updates=True)
+  executor.start_polling(dp, skip_updates=True)
